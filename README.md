@@ -11,3 +11,10 @@ Recent research has highlighted the pivotal role of RNA post-transcriptional mod
 
 ## How to use it
 In banch, you can find train.py, with the whole project, you can run it directly.
+Contrast experiment part, run TransformerEncoder.py, gru.py and lstm.py.
+
+## Usage
+  python train.py
+  python TransformerEncoder.py
+  python gru.py
+  python lstm.py
