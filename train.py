@@ -4,24 +4,14 @@
 # @File: train.py
 # Software: PyCharm
 
-
-import torch
 from termcolor import colored
-from transformers import AutoTokenizer, RobertaForSequenceClassification, DataCollatorWithPadding
-import transformers
-from datasets import load_dataset, load_metric, DatasetDict, concatenate_datasets, Dataset
+from transformers import AutoTokenizer
+from datasets import DatasetDict, concatenate_datasets
 import torch.utils.data as Data
-import datasets
-import random
-import pandas as pd
-import numpy as np
-from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer, AutoModel
+from transformers import AutoModel
 import evaluate
 import numpy as np
-import tensorflow as tf
 import os
-from evaluateMetric.glue.glue import Glue
-import torch.nn as nn
 from capsulnet import *
 from sklearn.metrics import auc, roc_curve, precision_recall_curve, average_precision_score
 import time
@@ -31,51 +21,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 print("start")
 print("build model")
 device = torch.device("cuda", 0)
-# device = torch.device("cpu")
-
-print(colored(f"{transformers.__version__}", "blue"))
-# send_example_telemetry("text_classification_notebook", framework="pytorch")
-GLUE_TASKS = ["cola", "mnli", "mnli-mm", "mrpc", "qnli", "qqp", "rte", "sst2", "stsb", "wnli"]
-task = "cola"
 
 model_checkpoint_1024 = "models/SpliceBERT.1024nt"
 model_checkpoint_510 = "models/SpliceBERT-human.510nt"
 
-model_type = 'integrate_final'
+model_type = 'integrate'
 batch_size = 8
-
-actual_task = "mnli" if task == "mnli-mm" else task
-# metric = evaluate.load("glue", config_name=task)
-metric = Glue(config_name=task)
-print("metric:\n", metric)
-
-# load positive and negative data
-# train_dataset_0 = DatasetDict.from_csv({'train': '/mnt/sdb/home/lsr/RNAmodofication/data/process/train/0.csv'})
-# train_dataset_1 = DatasetDict.from_csv({'train': '/mnt/sdb/home/lsr/RNAmodofication/data/process/train/1.csv'})
-
-# print(colored(f"dataset:{dataset}", "blue"))
-# print("dataset[train][0]:", dataset["train"][0])
-"""
-DatasetDict({
-    train: Dataset({
-        features: ['Unnamed: 0', 'data', 'label'],
-        num_rows: 2781
-    })
-    test: Dataset({
-        features: ['Unnamed: 0', 'data', 'label'],
-        num_rows: 100
-    })
-    valid: Dataset({
-        features: ['Unnamed: 0', 'data', 'label'],
-        num_rows: 300
-    })
-})
-
-dataset[train][0]: {'idx': 0, 
-'data': ' C C C C A T A C C C C T A G T C A T C C T C G G C A G G T C T C A G T C C C G G C T C C A T C T G T G C C C T C G C C C C A G C C G C A G C T A T G T T G C A C A C C G A G G G C C A C G C T C T T C T T C G G G C G G T G G G T C A G G G T A A G C T A C G C T T G G C C C G T T T G C T T C T G G A G G G A G G C G C C T A C G T G A A T G A G G G T G A T G C G C A G G G G G A G A C T G C G C T A A T G G C A G C C T G T C G G G C C C G C T A C G A C G A C C C C C A G A A C A A G G C A C G C A T G G T A C G C T A C C T C C T G G A G C A A G G C G C G G A C C C C A A T A T C G C A G A C C G A T T A G G G C G C A C G G C G C T C A T G C A C G C T T G C G C C G G G G G T G G G G G C G C C G C G G T G G C C T C G C T G C T C C T T G C C C A C G G C G C A G A C C C C T C A G T C C G A G A T C A C G C G G G C G C C T C G G C T C T T G T C C A C G C C C T G G A C C G C G G G G A C C G C G A G A C C C T T G C C A C A C T G C T G G A C G C C T G C A A G G C C A A G G G T A C G G A G G T C A T C A T C A T C A C C A C C G A T A C C T C G C C C T C A G G C A C C A A G A A G A C C C G G C A G T A T C T C A A T T C T C C A C C A T C C C C A G G G G T G G A G G A C C C T G C T C C C G C C T C T C C T A G C C C G G G G T T C T G C A C G T C G C C T T C G G A A A T C C A A C T G C A G A C C G C T G G A G G A G G A G G G C G T G G G A T G T T A T C C C C T C G C G C C C A G G A A G A A G A G G A G A A G C G G G A C G T A T T T G A A T T C C C T C T T C C T A A G C C C C C C G A T G A C C C A T C C C C T T C C G A G C C G C T C C C C A A A C C A C C A C G C C A T C C C C C A A A A C C A C T C A A A A G G C T C A A C T C C G A G C C C T G G G G C C T A G T G G C C C C T C C T C A A C C A G T C C C A C C C A C T G A A G G G A G A C C G G G G A T C G A G C G C T T G A C T G C C G A A T T C A A T G G C C T G A C C C T G A C C G G T C G A C C C C G T C T T T C C C G A C G T C A C A G C A C C G A A G G C C C T G A G G A C C C G C C C C C A T G G G C G G A G A A A G T G A C T A G C G G G G G T C C T', 
-'label': 0}
-"""
-
 
 class FCNet(nn.Module):
     """Simple class for non-linear fully connect network
@@ -84,11 +35,10 @@ class FCNet(nn.Module):
 
     def __init__(self, dims, act='ReLU', dropout=0):
         super(FCNet, self).__init__()
-        # dims : 128 384
         layers = []
         for i in range(len(dims) - 2):
-            in_dim = dims[i]    # 128
-            out_dim = dims[i + 1]   # 384
+            in_dim = dims[i]
+            out_dim = dims[i + 1]
             if 0 < dropout:
                 layers.append(nn.Dropout(dropout))
             layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
@@ -138,9 +88,9 @@ class BANLayer(nn.Module):
         return fusion_logits
 
     def forward(self, v, q, softmax=False):
-        v_num = v.size(1)   # drug_length
-        q_num = q.size(1)   # protein_length
-        if self.h_out <= self.c:    # multi-head
+        v_num = v.size(1)
+        q_num = q.size(1)
+        if self.h_out <= self.c:
             v_ = self.v_net(v)
             q_ = self.q_net(q)
             att_maps = torch.einsum('xhyk,bvk,bqk->bhvq', (self.h_mat, v_, q_)) + self.h_bias
@@ -205,14 +155,12 @@ class BertClassificationModel(nn.Module):
         super(BertClassificationModel, self).__init__()
 
         self.device = device
-        # # 读取分词器
+
         self.tokenizer_510 = AutoTokenizer.from_pretrained(model_checkpoint_510, use_fast=True)
         self.tokenizer_1024 = AutoTokenizer.from_pretrained(model_checkpoint_1024, use_fast=True)
 
-        # 读取预训练模型
         self.bert_510 = AutoModel.from_pretrained(pretrained_model_name_or_path=model_checkpoint_510).to(device)
         self.bert_1024 = AutoModel.from_pretrained(pretrained_model_name_or_path=model_checkpoint_1024).to(device)
-
 
         self.bcn = weight_norm(BANLayer(v_dim=512, q_dim=512, h_dim=512, h_out=2), name='h_mat', dim=None)
 
@@ -223,21 +171,17 @@ class BertClassificationModel(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(64, 2)
         )
-        # self.fc = nn.Linear(hidden_size, 2)
-    def reset_parameters(self):
-        nn.init.kaiming_normal_(self.conv1.weight)
-        nn.init.kaiming_normal_(self.conv2.weight)
-        nn.init.kaiming_normal_(self.conv3.weight)
-        nn.init.kaiming_normal_(self.conv4.weight)
 
-    def forward(self, batch_sentences):  # [batch_size,1]
+    def forward(self, batch_sentences):
         batch_sentences = list(batch_sentences)
         batch_sentences_partial = [seq[491:1511] for seq in batch_sentences]
+
         token_seq = self.tokenizer_510(batch_sentences_partial,
                                    truncation=True,
                                    return_tensors="pt", max_length=512)
         input_ids, token_type_ids, attention_mask = token_seq['input_ids'], token_seq['token_type_ids'], token_seq[
             'attention_mask']
+
         representation_1 = self.bert_510(input_ids=input_ids.to(self.device), token_type_ids=token_type_ids.to(self.device),
                                    attention_mask=attention_mask.to(self.device))['last_hidden_state']
 
@@ -247,6 +191,7 @@ class BertClassificationModel(nn.Module):
                                    return_tensors="pt")
         input_ids, token_type_ids, attention_mask = token_seq['input_ids'], token_seq['token_type_ids'], token_seq[
             'attention_mask']
+
         representation_2 = self.bert_1024(input_ids=input_ids.to(self.device), token_type_ids=token_type_ids.to(self.device),
                                    attention_mask=attention_mask.to(self.device))['last_hidden_state']
 
@@ -255,24 +200,6 @@ class BertClassificationModel(nn.Module):
         pred = self.block(f)
 
         return pred
-
-
-# show some data in datasets randomly
-def show_random_elements(dataset, num_examples=10):
-    assert num_examples <= len(dataset), "Can't pick more elements than there are in the dataset."
-    picks = []
-    for _ in range(num_examples):
-        pick = random.randint(0, len(dataset) - 1)
-        while pick in picks:
-            pick = random.randint(0, len(dataset) - 1)
-        picks.append(pick)
-
-    df = pd.DataFrame(dataset[picks])
-    for column, typ in dataset.features.items():
-        if isinstance(typ, datasets.ClassLabel):
-            df[column] = df[column].transform(lambda i: typ.names[i])
-    # display(HTML(df.to_html()))
-    print(colored(df, "blue"))
 
 class RNADataset(Data.Dataset):
     def __init__(self, data, label):
@@ -367,62 +294,10 @@ def to_log(log, index):
     with open(f"./results/{index + 1}/result_{model_type}.log", "a+") as f:
         f.write(log + '\n')
 
-# show_random_elements(dataset["train"])
-"""
-show_random_elements(dataset["train"])  output:
-    idx                                               data  label
-0  2245   G T T T C C A G A C C A T G C C G A G C C A C...      1
-1  2730   A G A A C C T C G A G G T C C G C G C G C G C...      1
-2   561   A G T C A T G G G A G A G G G G T C A C A T G...      0
-3  2595   C G A T G A C T G T G T G G T T G C C C A A A...      1
-4  1238   A C T C C G T A T T T C A C C T G A A C A G T...      0
-5  2156   G T T C A T C C A A G T A A C G A T T C T C C...      1
-6  2450   A G C T G T G G G T A G T G T T C T C T C A T...      1
-7  2151   G T G G A A G G A T T A C T T T A G C C C A G...      1
-8   449   G C A C G C A G T G G C G T G A T C T C T G C...      0
-9  2195   C A G T G G C C T G A T C A T C A G T C T T G...      1
-"""
-
-#  你可以直接用你的预测和标签调用它的计算方法，它会返回一个带有度量值的字典：
-# fake_preds = np.random.randint(0, 2, size=(64,))
-# fake_labels = np.random.randint(0, 2, size=(64,))
-# metric.compute(predictions=fake_preds, references=fake_labels)
-
-
-# print(tokenizer(" C C C C A T A C C C C T A G T C A T C C T C G G C A G G T C T C A G T C C C G G C T C C A T C T G T G C C C T C G C C C C A G C C G C A G C T A T G T T G C A C A C C G A G G G C C A C G C T C T T C T T C G G G C G G T G G G T C A G G G T A A G C T A C G C T T G G C C C G T T T G C T T C T G G A G G G A G G C G C C T A C G T G A A T G A G G G T G A T G C G C A G G G G G A G A C T G C G C T A A T G G C A G C C T G T C G G G C C C G C T A C G A C G A C C C C C A G A A C A A G G C A C G C A T G G T A C G C T A C C T C C T G G A G C A A G G C G C G G A C C C C A A T A T C G C A G A C C G A T T A G G G C G C A C G G C G C T C A T G C A C G C T T G C G C C G G G G G T G G G G G C G C C G C G G T G G C C T C G C T G C T C C T T G C C C A C G G C G C A G A C C C C T C A G T C C G A G A T C A C G C G G G C G C C T C G G C T C T T G T C C A C G C C C T G G A C C G C G G G G A C C G C G A G A C C C T T G C C A C A C T G C T G G A C G C C T G C A A G G C C A A G G G T A C G G A G G T C A T C A T C A T C A C C A C C G A T A C C T C G C C C T C A G G C A C C A A G A A G A C C C G G C A G T A T C T C A A T T C T C C A C C A T C C C C A G G G G T G G A G G A C C C T G C T C C C G C C T C T C C T A G C C C G G G G T T C T G C A C G T C G C C T T C G G A A A T C C A A C T G C A G A C C G C T G G A G G A G G A G G G C G T G G G A T G T T A T C C C C T C G C G C C C A G G A A G A A G A G G A G A A G C G G G A C G T A T T T G A A T T C C C T C T T C C T A A G C C C C C C G A T G A C C C A T C C C C T T C C G A G C C G C T C C C C A A A C C A C C A C G C C A T C C C C C A A A A C C A C T C A A A A G G C T C A A C T C C G A G C C C T G G G G C C T A G T G G C C C C T C C T C A A C C A G T C C C A C C C A C T G A A G G G A G A C C G G G G A T C G A G C G C T T G A C T G C C G A A T T C A A T G G C C T G A C C C T G A C C G G T C G A C C C C G T C T T T C C C G A C G T C A C A G C A C C G A A G G C C C T G A G G A C C C G C C C C C A T G G G C G G A G A A A G T G A C T A G C G G G G G T C C T"))
-"""
-tokenizer output：
-'input_ids': [0, 230, 230, 230, 230, 83, 255, 83, 230, 230, 230, 230, 255, 83, 272, 255, 230, 83, 255, 230, 230, 255, 230, 272, 272, 230, 83, 272, 272, 255, 230, 255, 230, 83, 272, 255, 230, 230, 230, 272, 272, 230, 255, 230, 230, 83, 255, 230, 255, 272, 255, 272, 230, 230, 230, 255, 230, 272, 230, 230, 230, 230, 83, 272, 230, 230, 272, 230, 83, 272, 230, 255, 83, 255, 272, 255, 255, 272, 230, 83, 230, 83, 230, 230, 272, 83, 272, 272, 272, 230, 230, 83, 230, 272, 230, 255, 230, 255, 255, 230, 255, 255, 230, 272, 272, 272, 230, 272, 272, 255, 272, 272, 272, 255, 230, 83, 272, 272, 272, 255, 83, 83, 272, 230, 255, 83, 230, 272, 230, 255, 255, 272, 272, 230, 230, 230, 272, 255, 255, 255, 272, 230, 255, 255, 230, 255, 272, 272, 83, 272, 272, 272, 83, 272, 272, 230, 272, 230, 230, 255, 83, 230, 272, 255, 272, 83, 83, 255, 272, 83, 272, 272, 272, 255, 272, 83, 255, 272, 230, 272, 230, 83, 272, 272, 272, 272, 272, 83, 272, 83, 230, 255, 272, 230, 272, 230, 255, 83, 83, 255, 272, 272, 230, 83, 272, 230, 230, 255, 272, 255, 230, 272, 272, 272, 230, 230, 230, 272, 230, 255, 83, 230, 272, 83, 230, 272, 83, 230, 230, 230, 230, 230, 83, 272, 83, 83, 230, 83, 83, 272, 272, 230, 83, 230, 272, 230, 83, 255, 272, 272, 255, 83, 230, 272, 230, 255, 83, 230, 230, 255, 230, 230, 255, 272, 272, 83, 272, 230, 83, 83, 272, 272, 230, 272, 230, 272, 272, 83, 230, 230, 230, 230, 83, 83, 255, 83, 255, 230, 272, 230, 83, 272, 83, 230, 230, 272, 83, 255, 255, 83, 272, 272, 272, 230, 272, 230, 83, 230, 272, 272, 230, 272, 230, 255, 230, 83, 255, 272, 230, 83, 230, 272, 230, 255, 255, 272, 230, 272, 230, 230, 272, 272, 272, 272, 272, 255, 272, 272, 272, 272, 272, 230, 272, 230, 230, 272, 230, 272, 272, 255, 272, 272, 230, 230, 255, 230, 272, 230, 255, 272, 230, 255, 230, 230, 255, 255, 272, 230, 230, 230, 83, 230, 272, 272, 230, 272, 230, 83, 272, 83, 230, 230, 230, 230, 255, 230, 83, 272, 255, 230, 230, 272, 83, 272, 83, 255, 230, 83, 230, 272, 230, 272, 272, 272, 230, 272, 230, 230, 255, 230, 272, 272, 230, 255, 230, 255, 255, 272, 255, 230, 230, 83, 230, 272, 230, 230, 230, 255, 272, 272, 83, 230, 230, 272, 230, 272, 272, 272, 272, 83, 230, 230, 272, 230, 272, 83, 272, 83, 230, 230, 230, 255, 255, 272, 230, 230, 83, 230, 83, 230, 255, 272, 230, 255, 272, 272, 83, 230, 272, 230, 230, 255, 272, 230, 83, 83, 272, 272, 230, 230, 83, 83, 272, 272, 272, 255, 83, 230, 272, 272, 83, 272, 272, 255, 230, 83, 255, 230, 83, 255, 230, 83, 255, 230, 83, 230, 230, 83, 230, 230, 272, 83, 255, 83, 230, 230, 255, 230, 272, 230, 230, 230, 255, 230, 83, 272, 272, 230, 83, 230, 230, 83, 83, 272, 83, 83, 272, 83, 230, 230, 230, 272, 272, 230, 83, 272, 255, 83, 255, 230, 255, 230, 83, 83, 255, 255, 230, 255, 230, 230, 83, 230, 230, 83, 255, 230, 230, 230, 230, 83, 272, 272, 272, 272, 255, 272, 272, 83, 272, 272, 83, 230, 230, 230, 255, 272, 230, 255, 230, 230, 230, 272, 230, 230, 255, 230, 255, 230, 230, 255, 83, 272, 230, 230, 230, 272, 272, 272, 272, 255, 255, 230, 255, 272, 230, 83, 230, 272, 255, 230, 272, 230, 230, 255, 255, 230, 272, 272, 83, 83, 83, 255, 230, 230, 83, 83, 230, 255, 272, 230, 83, 272, 83, 230, 230, 272, 230, 255, 272, 272, 83, 272, 272, 83, 272, 272, 83, 272, 272, 272, 230, 272, 255, 272, 272, 272, 83, 255, 272, 255, 255, 83, 255, 230, 230, 230, 230, 255, 230, 272, 230, 272, 230, 230, 230, 83, 272, 272, 83, 83, 272, 83, 83, 272, 83, 272, 272, 83, 272, 83, 83, 272, 230, 272, 272, 272, 83, 230, 272, 255, 83, 255, 255, 255, 272, 83, 83, 255, 255, 230, 230, 230, 255, 230, 255, 255, 230, 230, 255, 83, 83, 272, 230, 230, 230, 230, 230, 230, 272, 83, 255, 272, 83, 230, 230, 230, 83, 255, 230, 230, 230, 230, 255, 255, 230, 230, 272, 83, 272, 230, 230, 272, 230, 255, 230, 230, 230, 230, 83, 83, 83, 230, 230, 83, 230, 230, 83, 230, 272, 230, 230, 83, 255, 230, 230, 230, 230, 230, 83, 83, 83, 83, 230, 230, 83, 230, 255, 230, 83, 83, 83, 83, 272, 272, 230, 255, 230, 83, 83, 230, 255, 230, 230, 272, 83, 272, 230, 230, 230, 255, 272, 272, 272, 272, 230, 230, 255, 83, 272, 255, 272, 272, 230, 230, 230, 230, 255, 230, 230, 255, 230, 83, 83, 230, 230, 83, 272, 255, 230, 230, 230, 83, 230, 230, 230, 83, 230, 255, 272, 83, 83, 272, 272, 272, 83, 272, 83, 230, 230, 272, 272, 272, 272, 83, 255, 230, 272, 83, 272, 230, 272, 230, 255, 255, 272, 83, 230, 255, 272, 230, 230, 272, 83, 83, 255, 255, 230, 83, 83, 255, 272, 272, 230, 230, 255, 272, 83, 230, 230, 230, 255, 272, 83, 230, 230, 272, 272, 255, 230, 272, 83, 230, 230, 230, 230, 272, 255, 230, 255, 255, 255, 230, 230, 230, 272, 83, 230, 272, 255, 230, 83, 230, 83, 272, 230, 83, 230, 230, 272, 83, 83, 272, 272, 230, 230, 230, 255, 272, 83, 272, 272, 83, 230, 230, 230, 272, 230, 230, 230, 230, 230, 83, 255, 272, 272, 272, 230, 272, 272, 83, 272, 83, 83, 83, 272, 255, 272, 83, 230, 255, 83, 272, 230, 272, 272, 272, 272, 272, 255, 230, 230, 255, 2]
-'attention_mask': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-tokenizer successfully 
-C: 230
-A: 83
-T: 255
-G: 272
-"""
-
-# Note that load_metric has loaded the proper metric associated to your task, which is:
-# 注意其中的映射结果要改成相应的类名，我们选择了cola因此我只更改了cola对应的列名
-task_to_keys = {
-    "cola": ("data", None),
-    "mnli": ("premise", "hypothesis"),
-    "mnli-mm": ("premise", "hypothesis"),
-    "mrpc": ("sentence1", "sentence2"),
-    "qnli": ("question", "sentence"),
-    "qqp": ("question1", "question2"),
-    "rte": ("sentence1", "sentence2"),
-    "sst2": ("sentence", None),
-    "stsb": ("sentence1", "sentence2"),
-    "wnli": ("sentence1", "sentence2"),
-}
-
-num_labels = 2
-metric_name = "accuracy"
-
 def main():
-    batchsize = 8  # 定义每次放多少个数据参加训练
+    batchsize = 8
 
-    for index in range(5,11):
+    for index in range(10):
 
         train_dataset_0 = DatasetDict.from_csv({'train': f'data/reprocess/train/{2*index}.csv'})
         train_dataset_1 = DatasetDict.from_csv({'train': f'data/reprocess/train/{2*index+1}.csv'})
@@ -450,22 +325,15 @@ def main():
         valid_loader = Data.DataLoader(validDatas, batch_size=batchsize, shuffle=True)
         test_loader = Data.DataLoader(testDatas, batch_size=batchsize, shuffle=True)
 
-        # 这里搭建训练循环，输出训练结果
-
-        epoch_num = 50  # 设置循环多少次训练，可根据模型计算情况做调整，如果模型陷入了局部最优，那么循环多少次也没啥用
+        epoch_num = 50
 
         print('training...')
 
-        # 初始化模型
         model = BertClassificationModel(device=device).to(device)
-
-        optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)  # 首先定义优化器，这里用的AdamW，lr是学习率，因为bert用的就是这个
-
-        # 这里是定义损失函数，交叉熵损失函数比较常用解决分类问题
-        # 依据你解决什么问题，选择什么样的损失函数
+        optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
         criterion = nn.CrossEntropyLoss()
         early_stopping = EarlyStopping()
-        # criterion = MarginLoss(0.9, 0.1, 0.5)
+
         best_acc = 0
         print("模型数据已经加载完成,现在开始模型训练。")
 
@@ -474,34 +342,24 @@ def main():
             t0 = time.time()
             model.train()
             for i, (data, labels) in enumerate(train_loader):
-                # print(len(data))
                 if len(data) <= 1:
                     continue
-                # labels = data['label']
                 labels = labels.to(device)
                 output = model(data)
-                optimizer.zero_grad()  # 梯度清0
-                loss = criterion(output, labels)  # 计算误差
-                loss.backward()  # 反向传播
-                optimizer.step()  # 更新参数
+                optimizer.zero_grad()
+                loss = criterion(output, labels)
+                loss.backward()
+                optimizer.step()
 
                 loss_ls.append(loss.item())
 
-                # 打印一下每一次数据扔进去学习的进展
-                # print('batch:%d loss:%.5f' % (i, loss.item()))
-
-            # 打印一下每个epoch的深度学习的进展i
-            # print('epoch:%d loss:%.5f' % (epoch, loss.item()))
-
-        # 下面开始测试模型是不是好用哈
-            print('testing...(约2000秒(CPU))')
+            print('testing...')
 
             model.eval()
             with torch.no_grad():
                 train_performance, train_roc_data, train_prc_data, _ = evaluate(train_loader, model, criterion)
                 valid_performance, valid_roc_data, valid_prc_data, valid_loss = evaluate(valid_loader, model, criterion)
 
-            # results = f"\nepoch: {epoch + 1}, loss: {np.mean(loss_ls):.5f}, loss1: {np.mean(loss1_ls):.5f}, loss2_3: {np.mean(loss2_3_ls):.5f}\n"
             results = f"\nepoch: {epoch + 1}, loss: {np.mean(loss_ls):.5f}\n"
             results += f'Train: {train_performance[0]:.4f}, time: {time.time() - t0:.2f}'
             results += '\n' + '=' * 16 + ' Valid Performance. Epoch[{}] '.format(epoch + 1) + '=' * 16 \
@@ -514,7 +372,6 @@ def main():
             if valid_acc > best_acc:
                 best_acc = valid_acc
                 test_performance, test_roc_data, test_prc_data, _ = evaluate(test_loader, model, criterion)
-                # best_performance = valid_performance
                 filename = '{}, {}[{:.4f}].pt'.format(f'model{model_type}' + ', epoch[{}]'.format(epoch + 1), 'ACC', test_performance[0])
                 save_path_pt = os.path.join(f'Saved_Models/{index+1}', filename)
                 torch.save(model.state_dict(), save_path_pt, _use_new_zipfile_serialization=False)
